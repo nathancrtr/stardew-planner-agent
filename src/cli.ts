@@ -2,20 +2,26 @@ import "dotenv/config";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { makePlan } from "./plan.js";
 import { executePlan } from "./executor.js";
+import { runAgent } from "./agent.js";
 import { PlanSchema } from "./types.js";
 
 const USAGE = `Usage: npm run agent -- "<layout request>" [options]
 
+Modes:
+  (default)         agentic loop — Claude builds interactively, sees results, adapts
+  --oneshot         v1 workflow — Claude plans once, code executes open-loop
+
 Options:
   --headless        run the browser invisibly (default: headed, watchable)
   --save            save the plan on stardew.info and print the share URL
-  --dry-run         print the generated plan JSON without driving the browser
-  --plan <file>     skip Claude and execute an existing plan JSON file
   --pace <ms>       pause between actions (default 250)
+  --max-turns <n>   agentic mode: cap on loop iterations (default 30)
+  --dry-run         oneshot only: print the generated plan JSON, don't run a browser
+  --plan <file>     oneshot only: execute an existing plan JSON file
 
 Examples:
   npm run agent -- "Place a Junimo Hut in the center of a standard farm, surrounded by a perfect grid of Iridium Sprinklers and Ancient Fruit crops"
-  npm run agent -- --plan plans/my-plan.json --headless`;
+  npm run agent -- --oneshot --plan plans/my-plan.json --headless`;
 
 async function main() {
   const args = process.argv.slice(2);
@@ -23,7 +29,7 @@ async function main() {
   const opts: Record<string, string> = {};
   const positional: string[] = [];
   for (let i = 0; i < args.length; i++) {
-    if (args[i] === "--plan" || args[i] === "--pace") opts[args[i].slice(2)] = args[++i];
+    if (["--plan", "--pace", "--max-turns"].includes(args[i])) opts[args[i].slice(2)] = args[++i];
     else if (args[i].startsWith("--")) flags.add(args[i].slice(2));
     else positional.push(args[i]);
   }
@@ -34,6 +40,21 @@ async function main() {
     process.exit(1);
   }
 
+  const headless = flags.has("headless");
+  const save = flags.has("save");
+  const pace = opts.pace ? Number(opts.pace) : undefined;
+
+  if (!flags.has("oneshot") && !opts.plan && !flags.has("dry-run")) {
+    await runAgent(request, {
+      headless,
+      save,
+      pace,
+      maxTurns: opts["max-turns"] ? Number(opts["max-turns"]) : undefined,
+    });
+    return;
+  }
+
+  // ---- v1 workflow mode ----
   let plan;
   if (opts.plan) {
     plan = PlanSchema.parse(JSON.parse(readFileSync(opts.plan, "utf8")));
@@ -54,11 +75,7 @@ async function main() {
   }
 
   console.log("\ndriving stardew.info/planner...\n");
-  const { results, screenshot, shareUrl } = await executePlan(plan, {
-    headless: flags.has("headless"),
-    save: flags.has("save"),
-    pace: opts.pace ? Number(opts.pace) : undefined,
-  });
+  const { results, screenshot, shareUrl } = await executePlan(plan, { headless, save, pace });
 
   const okCount = results.filter((r) => r.ok).length;
   console.log(`\ndone: ${okCount}/${results.length} actions succeeded`);

@@ -5,3 +5,4 @@ screenshots/
 plans/
 .claude/settings.local.json
 .DS_Store
+runs/

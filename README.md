@@ -1,22 +1,27 @@
 # Stardew Visual Planner Agent
 
 An AI agent that builds Stardew Valley farm layouts on [stardew.info/planner](https://stardew.info/planner)
-via browser automation — the "visual agent" approach: you type a natural-language request,
-Claude designs the layout, and Playwright drives a real browser so you can watch it build.
+via browser automation: you type a natural-language request, Claude builds the layout in
+a real browser — placing objects, reading back the board state, looking at screenshots,
+and correcting its own mistakes — while you watch.
 
 ```
 "Place a Junimo Hut in the center of a standard farm, surrounded by a
  perfect grid of Iridium Sprinklers and Ancient Fruit crops"
         │
         ▼
-  Claude API (claude-opus-4-8, structured outputs)
-        │  JSON placement plan: [{type, item, column, row, ...}]
-        ▼
-  Playwright (headed Chromium)
-        │  selects items, moves the mouse, clicks/drags on the PixiJS canvas
+ ┌────────────────────── agentic loop ───────────────────────┐
+ │  Claude (claude-opus-4-8) ──tool_use──▶ harness            │
+ │     ▲                                    │ Playwright       │
+ │     └──tool_result (text/errors/PNG)◀────┘ clicks & drags   │
+ └────────────────────────────────────────────────────────────┘
+        │
         ▼
   stardew.info/planner — watch it build, get a screenshot + share URL
 ```
+
+The loop architecture (and a primer on tool use, agentic loops, multimodal feedback,
+and prompt caching) is documented in [`docs/agent-harness.md`](docs/agent-harness.md).
 
 ## Setup
 
@@ -29,19 +34,23 @@ cp .env.example .env   # add your Anthropic API key
 ## Usage
 
 ```sh
-# Full pipeline: natural language → plan → watch the browser build it
+# Agentic mode (default): Claude builds interactively, observes results, adapts
 npm run agent -- "A 15x15 ancient fruit field with iridium sprinklers and a junimo hut in the middle"
 
 # Options
 npm run agent -- "..." --headless     # invisible browser (uses software GL)
 npm run agent -- "..." --save         # save on stardew.info, prints share URL
-npm run agent -- "..." --dry-run      # print the plan JSON, don't open a browser
-npm run agent -- --plan plans/plan-123.json   # execute a saved plan (no API call)
 npm run agent -- "..." --pace 500     # slow down between actions
+npm run agent -- "..." --max-turns 50 # raise the loop-iteration guard (default 30)
+
+# v1 workflow mode: Claude plans once, code executes open-loop (cheaper, no feedback)
+npm run agent -- --oneshot "..."
+npm run agent -- --oneshot "..." --dry-run    # print the plan JSON only
+npm run agent -- --oneshot --plan plans/plan-123.json   # re-run a saved plan
 ```
 
-Every generated plan is saved to `plans/` so you can re-run or hand-edit it.
-A screenshot of the final board lands in `screenshots/`.
+Agentic runs save a full transcript to `runs/` for post-mortems; oneshot plans are
+saved to `plans/`. Final-board screenshots land in `screenshots/`.
 
 ## How it works
 
@@ -69,8 +78,12 @@ See `NOTES.md` for the full reverse-engineering notes on the planner's internals
 | File | Purpose |
 |---|---|
 | `src/cli.ts` | CLI entry point (`npm run agent`) |
-| `src/plan.ts` | NL → placement plan via Claude API |
-| `src/executor.ts` | Playwright driver for the planner canvas |
+| `src/agent.ts` | The agentic loop: Claude + tools + feedback (v2) |
+| `src/tools.ts` | Tool definitions and dispatch onto the session |
+| `src/session.ts` | Long-lived Playwright session driving the planner canvas |
+| `src/plan.ts` | v1 oneshot: NL → placement plan via structured outputs |
+| `src/executor.ts` | v1 oneshot: open-loop plan execution |
 | `src/catalog.ts` | Item catalog loading/validation + prompt text |
-| `src/types.ts` | Zod schemas for the plan format |
+| `src/types.ts` | Zod schemas for the v1 plan format |
 | `src/probe*.ts`, `src/dump-catalog.ts` | Dev tools used to reverse-engineer the site |
+| `docs/agent-harness.md` | v2 architecture plan + agent-concepts primer |
