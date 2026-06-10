@@ -1,4 +1,4 @@
-# Stardew Visual Planner Agent
+# stardew-planner-agent
 
 An AI agent that builds Stardew Valley farm layouts on [stardew.info/planner](https://stardew.info/planner)
 via browser automation: you type a natural-language request, Claude builds the layout in
