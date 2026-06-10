@@ -1,12 +1,15 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { mkdirSync, writeFileSync } from "node:fs";
+import readline from "node:readline/promises";
 import { catalogPromptText } from "./catalog.js";
 import { PlannerSession } from "./session.js";
 import { TOOLS, runTool } from "./tools.js";
 
 const SYSTEM = `You are a Stardew Valley farm-layout agent driving the stardew.info/planner (V3)
 board through tools. You design AND build the layout the user asks for, verifying your
-work as you go.
+work as you go. You may be in an ongoing design session: the user can send follow-up
+requests that refer to things you built earlier ("move the flower patch right") — resolve
+those references from the conversation and adjust the board accordingly.
 
 # Board model
 - The board is a tile grid. The REGULAR farm is 80 columns x 65 rows; column 0 is the left
@@ -33,8 +36,11 @@ work as you go.
 - When a placement is rejected, read the error: if the tile holds something you placed by
   mistake, erase_area and redo; if the area is unbuildable terrain, relocate deliberately
   (shift the whole structure, don't just nudge one tile).
-- Keep going until the build matches the request; then stop and summarize what you built
-  and where. Mention anything you had to adapt and why.
+- When the user asks you to modify something you built, erase exactly the affected region
+  and rebuild it at the new location — don't disturb unrelated parts of the board. If a
+  request is ambiguous, ask the user instead of guessing.
+- When the build matches the request, stop and summarize what you built and where.
+  Mention anything you had to adapt and why.
 
 # Item catalog (exact ids)
 ${catalogPromptText()}`;
@@ -47,121 +53,222 @@ export interface AgentOptions {
   model?: string;
 }
 
-export async function runAgent(request: string, opts: AgentOptions = {}): Promise<void> {
-  const model = opts.model ?? "claude-opus-4-8";
-  const maxTurns = opts.maxTurns ?? 30;
-  const client = new Anthropic();
+interface AgentContext {
+  client: Anthropic;
+  session: PlannerSession;
+  messages: Anthropic.MessageParam[];
+  usage: { in: number; out: number; cacheRead: number; cacheWrite: number };
+  model: string;
+  maxTurnsPerRequest: number;
+  totalTurns: number;
+  transcriptPath: string;
+  firstRequest: string;
+}
 
+async function openContext(request: string, opts: AgentOptions): Promise<AgentContext> {
   console.log("opening stardew.info/planner...");
   const session = await PlannerSession.open({ headless: opts.headless, pace: opts.pace });
+  mkdirSync("runs", { recursive: true });
+  return {
+    client: new Anthropic(),
+    session,
+    messages: [],
+    usage: { in: 0, out: 0, cacheRead: 0, cacheWrite: 0 },
+    model: opts.model ?? "claude-opus-4-8",
+    maxTurnsPerRequest: opts.maxTurns ?? 30,
+    totalTurns: 0,
+    transcriptPath: `runs/run-${Date.now()}.json`,
+    firstRequest: request,
+  };
+}
 
-  const messages: Anthropic.MessageParam[] = [
-    {
-      role: "user",
-      content: opts.save
-        ? `${request}\n\n(When you're done, call save_plan and give me the share URL.)`
-        : request,
-    },
-  ];
+/**
+ * One operator request: append it, then run the agent loop (stream → execute
+ * tools → feed back results) until the model ends its turn.
+ */
+async function agentTurn(ctx: AgentContext, userText: string): Promise<void> {
+  ctx.messages.push({ role: "user", content: userText });
 
-  const usage = { in: 0, out: 0, cacheRead: 0, cacheWrite: 0 };
   let turns = 0;
+  while (turns < ctx.maxTurnsPerRequest) {
+    turns++;
+    ctx.totalTurns++;
+    process.stdout.write(`\n⏳ turn ${ctx.totalTurns}: Claude is working...`);
 
-  try {
-    while (turns < maxTurns) {
-      turns++;
-      process.stdout.write(`\n⏳ turn ${turns}: Claude is working...`);
+    // Stream so the user sees reasoning/commentary live instead of a long
+    // silent pause while the whole turn generates.
+    const stream = ctx.client.messages.stream({
+      model: ctx.model,
+      max_tokens: 64000,
+      thinking: { type: "adaptive", display: "summarized" },
+      system: [{ type: "text", text: SYSTEM, cache_control: { type: "ephemeral" } }],
+      tools: TOOLS,
+      messages: ctx.messages,
+      cache_control: { type: "ephemeral" }, // auto-cache the growing transcript
+    });
 
-      // Stream so the user sees reasoning/commentary live instead of a long
-      // silent pause while the whole turn generates (the first design turn
-      // can take a minute or more).
-      const stream = client.messages.stream({
-        model,
-        max_tokens: 64000,
-        thinking: { type: "adaptive", display: "summarized" },
-        system: [{ type: "text", text: SYSTEM, cache_control: { type: "ephemeral" } }],
-        tools: TOOLS,
-        messages,
-        cache_control: { type: "ephemeral" }, // auto-cache the growing transcript
-      });
-
-      const DIM = "\x1b[2m";
-      const RESET = "\x1b[0m";
-      let firstOutput = true;
-      const clearStatus = () => {
-        if (firstOutput) {
-          process.stdout.write("\r\x1b[2K"); // erase the "working..." status line
-          firstOutput = false;
-        }
-      };
-      for await (const event of stream) {
-        if (event.type === "content_block_start") {
-          clearStatus();
-          if (event.content_block.type === "thinking") process.stdout.write(`\n${DIM}💭 `);
-          else if (event.content_block.type === "text") process.stdout.write(`${RESET}\n🗨  `);
-          else if (event.content_block.type === "tool_use") process.stdout.write(RESET);
-        } else if (event.type === "content_block_delta") {
-          if (event.delta.type === "thinking_delta") process.stdout.write(event.delta.thinking);
-          else if (event.delta.type === "text_delta") process.stdout.write(event.delta.text);
-        } else if (event.type === "content_block_stop") {
-          process.stdout.write(RESET);
-        }
+    const DIM = "\x1b[2m";
+    const RESET = "\x1b[0m";
+    let firstOutput = true;
+    const clearStatus = () => {
+      if (firstOutput) {
+        process.stdout.write("\r\x1b[2K"); // erase the "working..." status line
+        firstOutput = false;
       }
-      process.stdout.write(`${RESET}\n`);
-      const response = await stream.finalMessage();
-
-      usage.in += response.usage.input_tokens;
-      usage.out += response.usage.output_tokens;
-      usage.cacheRead += response.usage.cache_read_input_tokens ?? 0;
-      usage.cacheWrite += response.usage.cache_creation_input_tokens ?? 0;
-
-      // Replay the assistant turn verbatim (thinking blocks included — required).
-      messages.push({ role: "assistant", content: response.content });
-
-      if (response.stop_reason !== "tool_use") {
-        if (response.stop_reason !== "end_turn") {
-          console.log(`(stopped: ${response.stop_reason})`);
-        }
-        break;
+    };
+    for await (const event of stream) {
+      if (event.type === "content_block_start") {
+        clearStatus();
+        if (event.content_block.type === "thinking") process.stdout.write(`\n${DIM}💭 `);
+        else if (event.content_block.type === "text") process.stdout.write(`${RESET}\n🗨  `);
+        else if (event.content_block.type === "tool_use") process.stdout.write(RESET);
+      } else if (event.type === "content_block_delta") {
+        if (event.delta.type === "thinking_delta") process.stdout.write(event.delta.thinking);
+        else if (event.delta.type === "text_delta") process.stdout.write(event.delta.text);
+      } else if (event.type === "content_block_stop") {
+        process.stdout.write(RESET);
       }
+    }
+    process.stdout.write(`${RESET}\n`);
+    const response = await stream.finalMessage();
 
-      const toolUses = response.content.filter(
-        (b): b is Anthropic.ToolUseBlock => b.type === "tool_use",
-      );
-      const results: Anthropic.ToolResultBlockParam[] = [];
-      for (const call of toolUses) {
-        const outcome = await runTool(session, call.name, call.input as Record<string, unknown>);
-        console.log(`${outcome.isError ? "✗" : "✓"} [turn ${turns}] ${call.name}(${shortArgs(call.input)}) — ${outcome.log}`);
-        results.push({
-          type: "tool_result",
-          tool_use_id: call.id,
-          content: outcome.content,
-          is_error: outcome.isError,
-        });
-      }
-      messages.push({ role: "user", content: results });
+    ctx.usage.in += response.usage.input_tokens;
+    ctx.usage.out += response.usage.output_tokens;
+    ctx.usage.cacheRead += response.usage.cache_read_input_tokens ?? 0;
+    ctx.usage.cacheWrite += response.usage.cache_creation_input_tokens ?? 0;
+
+    // Replay the assistant turn verbatim (thinking blocks included — required).
+    ctx.messages.push({ role: "assistant", content: response.content });
+
+    if (response.stop_reason !== "tool_use") {
+      if (response.stop_reason !== "end_turn") console.log(`(stopped: ${response.stop_reason})`);
+      break;
     }
 
-    if (turns >= maxTurns) {
-      console.log(`\n⚠ hit the --max-turns guard (${maxTurns}) — stopping the loop`);
-    }
-
-    mkdirSync("screenshots", { recursive: true });
-    const shot = `screenshots/agent-${Date.now()}.png`;
-    writeFileSync(shot, await session.screenshot());
-    console.log(`\nfinal screenshot: ${shot}`);
-
-    mkdirSync("runs", { recursive: true });
-    const transcript = `runs/run-${Date.now()}.json`;
-    writeFileSync(transcript, JSON.stringify({ request, model, turns, usage, messages }, scrubImages, 2));
-    console.log(`transcript: ${transcript}`);
-    console.log(
-      `usage: ${turns} turns, in=${usage.in} out=${usage.out} cache_read=${usage.cacheRead} cache_write=${usage.cacheWrite}`,
+    const toolUses = response.content.filter(
+      (b): b is Anthropic.ToolUseBlock => b.type === "tool_use",
     );
+    const results: Anthropic.ToolResultBlockParam[] = [];
+    for (const call of toolUses) {
+      const outcome = await runTool(ctx.session, call.name, call.input as Record<string, unknown>);
+      console.log(`${outcome.isError ? "✗" : "✓"} [turn ${ctx.totalTurns}] ${call.name}(${shortArgs(call.input)}) — ${outcome.log}`);
+      results.push({
+        type: "tool_result",
+        tool_use_id: call.id,
+        content: outcome.content,
+        is_error: outcome.isError,
+      });
+    }
+    ctx.messages.push({ role: "user", content: results });
+  }
 
-    if (!(opts.headless ?? false)) await session.page.waitForTimeout(3000);
+  if (turns >= ctx.maxTurnsPerRequest) {
+    console.log(`\n⚠ hit the --max-turns guard (${ctx.maxTurnsPerRequest}) for this request — returning control`);
+  }
+
+  saveTranscript(ctx); // incremental: survives Ctrl-C / crashes mid-session
+}
+
+function saveTranscript(ctx: AgentContext): void {
+  writeFileSync(
+    ctx.transcriptPath,
+    JSON.stringify(
+      { request: ctx.firstRequest, model: ctx.model, turns: ctx.totalTurns, usage: ctx.usage, messages: ctx.messages },
+      scrubImages,
+      2,
+    ),
+  );
+}
+
+async function wrapUp(ctx: AgentContext, headless: boolean): Promise<void> {
+  mkdirSync("screenshots", { recursive: true });
+  const shot = `screenshots/agent-${Date.now()}.png`;
+  writeFileSync(shot, await ctx.session.screenshot());
+  saveTranscript(ctx);
+  console.log(`\nfinal screenshot: ${shot}`);
+  console.log(`transcript: ${ctx.transcriptPath}`);
+  console.log(
+    `usage: ${ctx.totalTurns} turns, in=${ctx.usage.in} out=${ctx.usage.out} cache_read=${ctx.usage.cacheRead} cache_write=${ctx.usage.cacheWrite}`,
+  );
+  if (!headless) await ctx.session.page.waitForTimeout(3000);
+}
+
+/** One-shot mode: a single operator request, then exit. */
+export async function runAgent(request: string, opts: AgentOptions = {}): Promise<void> {
+  const ctx = await openContext(request, opts);
+  try {
+    await agentTurn(
+      ctx,
+      opts.save ? `${request}\n\n(When you're done, call save_plan and give me the share URL.)` : request,
+    );
+    await wrapUp(ctx, opts.headless ?? false);
   } finally {
-    await session.close();
+    await ctx.session.close();
+  }
+}
+
+/**
+ * Buffers stdin lines so input typed (or piped) while the agent is busy isn't
+ * lost — plain readline.question() drops lines that arrive with no question
+ * pending.
+ */
+function lineSource(): { next: () => Promise<string | null>; close: () => void } {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const queued: string[] = [];
+  let pending: ((line: string | null) => void) | null = null;
+  let closed = false;
+  rl.on("line", (line) => {
+    if (pending) {
+      const resolve = pending;
+      pending = null;
+      resolve(line);
+    } else {
+      queued.push(line);
+    }
+  });
+  rl.on("close", () => {
+    closed = true;
+    if (pending) {
+      const resolve = pending;
+      pending = null;
+      resolve(null);
+    }
+  });
+  return {
+    next: () => {
+      if (queued.length > 0) return Promise.resolve(queued.shift()!);
+      if (closed) return Promise.resolve(null);
+      process.stdout.write("\nyou> ");
+      return new Promise((resolve) => {
+        pending = resolve;
+      });
+    },
+    close: () => rl.close(),
+  };
+}
+
+/** Interactive mode: a conversational design session at a REPL prompt. */
+export async function runInteractive(initialRequest: string | undefined, opts: AgentOptions = {}): Promise<void> {
+  const ctx = await openContext(initialRequest ?? "(interactive session)", opts);
+  const input = lineSource();
+  try {
+    if (initialRequest) await agentTurn(ctx, initialRequest);
+    else console.log("interactive session — describe what to build ('exit' to finish)");
+
+    while (true) {
+      const line = await input.next();
+      if (line === null) break; // Ctrl-D / closed stdin
+      const text = line.trim();
+      if (!text) continue;
+      if (["exit", "quit", "q"].includes(text.toLowerCase())) break;
+      await agentTurn(ctx, text);
+    }
+
+    if (opts.save) await agentTurn(ctx, "We're done — call save_plan and give me the share URL.");
+    await wrapUp(ctx, opts.headless ?? false);
+  } finally {
+    input.close();
+    await ctx.session.close();
   }
 }
 

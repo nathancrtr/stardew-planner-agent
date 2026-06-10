@@ -21,7 +21,9 @@ and correcting its own mistakes — while you watch.
 ```
 
 The loop architecture (and a primer on tool use, agentic loops, multimodal feedback,
-and prompt caching) is documented in [`docs/agent-harness.md`](docs/agent-harness.md).
+and prompt caching) is documented in [`docs/agent-harness.md`](docs/agent-harness.md);
+the interactive-shell design (conversation state vs. world state, referential
+follow-ups) in [`docs/interactive-shell.md`](docs/interactive-shell.md).
 
 ## Setup
 
@@ -36,6 +38,11 @@ cp .env.example .env   # add your Anthropic API key
 ```sh
 # Agentic mode (default): Claude builds interactively, observes results, adapts
 npm run agent -- "A 15x15 ancient fruit field with iridium sprinklers and a junimo hut in the middle"
+
+# Interactive shell: a conversational design session — refine with follow-ups
+# ("move the flower patch three tiles right", "add a fence around it"), 'exit' to finish
+npm run agent -- -i "Start me off with a cozy starter farm"
+npm run agent -- -i                    # or start with an empty board
 
 # Options
 npm run agent -- "..." --headless     # invisible browser (uses software GL)

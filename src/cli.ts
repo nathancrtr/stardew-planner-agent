@@ -2,13 +2,15 @@ import "dotenv/config";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { makePlan } from "./plan.js";
 import { executePlan } from "./executor.js";
-import { runAgent } from "./agent.js";
+import { runAgent, runInteractive } from "./agent.js";
 import { PlanSchema } from "./types.js";
 
 const USAGE = `Usage: npm run agent -- "<layout request>" [options]
 
 Modes:
-  (default)         agentic loop — Claude builds interactively, sees results, adapts
+  (default)         agentic loop — Claude builds, sees results, adapts, exits
+  -i, --interactive conversational shell — keep refining with follow-ups ("move the
+                    flower patch three tiles right") until you type 'exit'
   --oneshot         v1 workflow — Claude plans once, code executes open-loop
 
 Options:
@@ -31,11 +33,13 @@ async function main() {
   for (let i = 0; i < args.length; i++) {
     if (["--plan", "--pace", "--max-turns"].includes(args[i])) opts[args[i].slice(2)] = args[++i];
     else if (args[i].startsWith("--")) flags.add(args[i].slice(2));
+    else if (args[i] === "-i") flags.add("i");
     else positional.push(args[i]);
   }
 
   const request = positional.join(" ").trim();
-  if (!request && !opts.plan) {
+  const interactive = flags.has("interactive") || flags.has("i");
+  if (!request && !opts.plan && !interactive) {
     console.log(USAGE);
     process.exit(1);
   }
@@ -43,6 +47,16 @@ async function main() {
   const headless = flags.has("headless");
   const save = flags.has("save");
   const pace = opts.pace ? Number(opts.pace) : undefined;
+
+  if (interactive) {
+    await runInteractive(request || undefined, {
+      headless,
+      save,
+      pace,
+      maxTurns: opts["max-turns"] ? Number(opts["max-turns"]) : undefined,
+    });
+    return;
+  }
 
   if (!flags.has("oneshot") && !opts.plan && !flags.has("dry-run")) {
     await runAgent(request, {
