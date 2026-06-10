@@ -70,15 +70,45 @@ export async function runAgent(request: string, opts: AgentOptions = {}): Promis
   try {
     while (turns < maxTurns) {
       turns++;
-      const response = await client.messages.create({
+      process.stdout.write(`\n⏳ turn ${turns}: Claude is working...`);
+
+      // Stream so the user sees reasoning/commentary live instead of a long
+      // silent pause while the whole turn generates (the first design turn
+      // can take a minute or more).
+      const stream = client.messages.stream({
         model,
-        max_tokens: 16000,
-        thinking: { type: "adaptive" },
+        max_tokens: 64000,
+        thinking: { type: "adaptive", display: "summarized" },
         system: [{ type: "text", text: SYSTEM, cache_control: { type: "ephemeral" } }],
         tools: TOOLS,
         messages,
         cache_control: { type: "ephemeral" }, // auto-cache the growing transcript
       });
+
+      const DIM = "\x1b[2m";
+      const RESET = "\x1b[0m";
+      let firstOutput = true;
+      const clearStatus = () => {
+        if (firstOutput) {
+          process.stdout.write("\r\x1b[2K"); // erase the "working..." status line
+          firstOutput = false;
+        }
+      };
+      for await (const event of stream) {
+        if (event.type === "content_block_start") {
+          clearStatus();
+          if (event.content_block.type === "thinking") process.stdout.write(`\n${DIM}💭 `);
+          else if (event.content_block.type === "text") process.stdout.write(`${RESET}\n🗨  `);
+          else if (event.content_block.type === "tool_use") process.stdout.write(RESET);
+        } else if (event.type === "content_block_delta") {
+          if (event.delta.type === "thinking_delta") process.stdout.write(event.delta.thinking);
+          else if (event.delta.type === "text_delta") process.stdout.write(event.delta.text);
+        } else if (event.type === "content_block_stop") {
+          process.stdout.write(RESET);
+        }
+      }
+      process.stdout.write(`${RESET}\n`);
+      const response = await stream.finalMessage();
 
       usage.in += response.usage.input_tokens;
       usage.out += response.usage.output_tokens;
@@ -87,10 +117,6 @@ export async function runAgent(request: string, opts: AgentOptions = {}): Promis
 
       // Replay the assistant turn verbatim (thinking blocks included — required).
       messages.push({ role: "assistant", content: response.content });
-
-      for (const block of response.content) {
-        if (block.type === "text" && block.text.trim()) console.log(`\n🗨  ${block.text.trim()}\n`);
-      }
 
       if (response.stop_reason !== "tool_use") {
         if (response.stop_reason !== "end_turn") {
