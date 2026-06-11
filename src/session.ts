@@ -1,6 +1,8 @@
 import { Browser, Page, chromium } from "playwright";
+import { DOOR_OFFSETS, findItem } from "./catalog.js";
 
 const PLANNER_URL = "https://stardew.info/planner";
+const DOORS_JSON = JSON.stringify(DOOR_OFFSETS);
 
 export interface SessionOptions {
   headless?: boolean;
@@ -82,7 +84,10 @@ export class PlannerSession {
       await this.page.mouse.up();
       await this.page.waitForTimeout(120 + this.pace);
       const occupant = await this.tileContents(column, row);
-      if (occupant === item) return { ok: true, detail: `placed ${item} at (${column},${row})` };
+      if (occupant === item) {
+        const notes = await this.doorNotes(item, column, row);
+        return { ok: true, detail: [`placed ${item} at (${column},${row})`, ...notes].join("; ") };
+      }
       return {
         ok: false,
         detail: occupant
@@ -114,10 +119,12 @@ export class PlannerSession {
       await this.page.waitForTimeout(this.pace);
       const { filled, total } = await this.countFilled(column, row, width, height);
       const ok = filled > 0;
+      const doorWarnings = ok ? await this.findBlockedDoors(column, row, width, height) : [];
       return {
         ok,
         detail: ok
-          ? `${filled}/${total} tiles in the ${width}x${height} region now occupied (pre-occupied tiles were skipped)`
+          ? `${filled}/${total} tiles in the ${width}x${height} region now occupied (pre-occupied tiles were skipped)` +
+            (doorWarnings.length ? `\n${doorWarnings.join("\n")}` : "")
           : `no tiles in the ${width}x${height} region were filled — restricted area?`,
       };
     });
@@ -250,6 +257,69 @@ export class PlannerSession {
       throw new Error(`tile (${column},${row}) did not map to screen coordinates`);
     }
     return pt;
+  }
+
+  /**
+   * Entrance feedback for a just-placed item: where its own door is (and
+   * whether the approach tile is already blocked), plus any existing
+   * building's door this item now walls off.
+   */
+  private async doorNotes(item: string, column: number, row: number): Promise<string[]> {
+    const notes: string[] = [];
+    const door = DOOR_OFFSETS[item];
+    if (door !== undefined) {
+      const doorCol = column + door;
+      const blocker = await this.objectAt(doorCol, row + 1);
+      notes.push(
+        blocker
+          ? `WARNING: its door at (${doorCol},${row}) is blocked by "${blocker}" on the approach tile (${doorCol},${row + 1}) — clear that tile`
+          : `its door is at (${doorCol},${row}); keep the approach tile (${doorCol},${row + 1}) clear and run paths to it`,
+      );
+    }
+    const fp = findItem(item)?.footprint;
+    const w = fp?.width ?? 1;
+    const h = fp?.height ?? 1;
+    notes.push(...(await this.findBlockedDoors(column, row - h + 1, w, h)));
+    return notes;
+  }
+
+  /**
+   * Scan a rectangle for occupied tiles sitting directly in front of (south
+   * of) a building's human door. Flooring doesn't count as a blocker — paths
+   * belong in front of doors.
+   */
+  private async findBlockedDoors(column: number, row: number, width: number, height: number): Promise<string[]> {
+    return (await this.page.evaluate(`(() => {
+      const DOORS = ${DOORS_JSON};
+      const p = window.planner;
+      const out = [];
+      for (let r = ${row}; r < ${row + height}; r++) {
+        for (let c = ${column}; c < ${column + width}; c++) {
+          const occ = p.tiles[r] && p.tiles[r][c];
+          if (!occ || !occ.objectData) continue;
+          const n = p.tiles[r - 1] && p.tiles[r - 1][c];
+          if (!n || !n.objectData || n === occ) continue;
+          const off = DOORS[n.objectData.id];
+          if (off === undefined) continue;
+          // sprites anchor bottom-left: x/y encode the anchor tile
+          const anchorCol = Math.round(n.x / p.tileSize);
+          const bottomRow = Math.round(n.y / p.tileSize) - 1;
+          if (c === anchorCol + off && r === bottomRow + 1) {
+            out.push('WARNING: "' + occ.objectData.id + '" at (' + c + ',' + r + ') blocks the door of the ' + n.objectData.id + ' at (' + c + ',' + (r - 1) + ') — keep that tile walkable');
+          }
+        }
+      }
+      return out;
+    })()`)) as string[];
+  }
+
+  /** Occupant of the objects layer only — flooring underneath doesn't count. */
+  private async objectAt(column: number, row: number): Promise<string | null> {
+    return (await this.page.evaluate(`(() => {
+      const p = window.planner;
+      const t = p.tiles[${row}] && p.tiles[${row}][${column}];
+      return t && t.objectData ? t.objectData.id : null;
+    })()`)) as string | null;
   }
 
   private async tileContents(column: number, row: number): Promise<string | null> {

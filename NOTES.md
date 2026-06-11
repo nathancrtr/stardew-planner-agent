@@ -26,7 +26,9 @@ exposes a global `window.planner` object which is the whole API surface.
 - `snapPosition(x, y)` → `{x, y, row, column}` (floor division by 16).
 - Sprites anchor `(0,1)` (bottom-left): a sprite placed on tile `(col,row)` gets
   `x = col*16`, `y = row*16 + 16`; multi-tile buildings extend up/right from the
-  clicked tile.
+  clicked tile. Every footprint tile of `planner.tiles` references the SAME
+  sprite object, so from any tile of a building you can recover its anchor:
+  `col = x/16`, `bottomRow = y/16 - 1` (verified live).
 - `checkRestriction` / `restrictionLayers` (`accessible`, `buildable`,
   `tillable`) validate placement.
 - `loadLayout(layoutObj)` switches farm map; `planner.layouts` is a dict:

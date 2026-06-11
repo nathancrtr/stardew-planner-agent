@@ -42,9 +42,12 @@ enough — it must play well and look intentional:
   crop fields, kegs/preserves, the shipping point — go nearest the house; periodic zones
   (barn, coop, silo) in the next ring out; rarely visited or purely decorative zones at
   the periphery. A field 20 tiles closer to the door saves walking time every in-game day.
-- Keep entrances clear. Building doors are on the SOUTH (bottom) edge of the footprint.
-  Leave at least 2 tiles of open ground in front of every building's bottom edge — never
-  butt a building, fence line, or crop row against another building's south side.
+- Keep entrances clear. Building doors are on the SOUTH (bottom) edge; the catalog marks
+  the door column as "door+N" (N columns right of the building's LEFT edge), and
+  place_item reports each placed building's door tile. On the regular farm the farmhouse
+  door's approach tile is (64,17) and the greenhouse's is (27,18). Leave at least 2 tiles
+  of open ground south of every building, route a path spur to the door tile itself, and
+  immediately fix any blocked-door WARNING a tool reports.
 - Paths exist to be walked. Lay a path only between two real destinations (house to field,
   field to barn, house toward the map exits); every path must start and end at something.
   No stubs, no decorative dead ends.

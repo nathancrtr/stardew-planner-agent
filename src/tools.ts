@@ -10,7 +10,7 @@ export const TOOLS: Anthropic.Tool[] = [
   {
     name: "place_item",
     description:
-      "Place a single object on the board. (column, row) is the object's ANCHOR tile — the BOTTOM-LEFT tile of its footprint; a WxH building extends RIGHT and UP from there. Fails with a reason if the tile is occupied or restricted. Use this for buildings, sprinklers, scarecrows, machines, and other one-off objects.",
+      "Place a single object on the board. (column, row) is the object's ANCHOR tile — the BOTTOM-LEFT tile of its footprint; a WxH building extends RIGHT and UP from there. Fails with a reason if the tile is occupied or restricted. For buildings with a human door the result reports the door tile and WARNS if a door's approach is blocked — fix those warnings. Use this for buildings, sprinklers, scarecrows, machines, and other one-off objects.",
     input_schema: {
       type: "object",
       properties: {
@@ -24,7 +24,7 @@ export const TOOLS: Anthropic.Tool[] = [
   {
     name: "fill_area",
     description:
-      "Paint a rectangle of any 1x1 item (crops, paths, flooring, fences, and 1x1 machines like kegs or preserves jars). (column, row) is the TOP-LEFT corner; extends `width` right and `height` down. Tiles that are already occupied are skipped automatically, so you can fill a whole field after placing sprinklers/buildings inside it. Returns how many tiles in the region are now occupied.",
+      "Paint a rectangle of any 1x1 item (crops, paths, flooring, fences, and 1x1 machines like kegs or preserves jars). (column, row) is the TOP-LEFT corner; extends `width` right and `height` down. Tiles that are already occupied are skipped automatically, so you can fill a whole field after placing sprinklers/buildings inside it. Returns how many tiles in the region are now occupied, and WARNS if the fill buried the approach tile of a building's door.",
     input_schema: {
       type: "object",
       properties: {
