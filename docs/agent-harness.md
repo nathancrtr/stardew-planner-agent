@@ -138,7 +138,7 @@ effectively the product spec — most behavior tuning happens here, not in code.
 | Tool | Args | Returns |
 |---|---|---|
 | `place_item` | item, column, row | placed / specific rejection reason (`is_error`) |
-| `fill_area` | item, column, row, width, height | corner-check summary |
+| `fill_area` | item, column, row, width, height | occupied-tile count for the region |
 | `erase_area` | column, row, width, height | tiles cleared |
 | `inspect_area` | column, row, width, height | text grid of occupant ids (ground truth without image tokens) |
 | `screenshot` | — | PNG of the board canvas (image block) |

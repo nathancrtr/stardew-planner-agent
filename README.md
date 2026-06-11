@@ -28,6 +28,8 @@ follow-ups) in [`docs/interactive-shell.md`](docs/interactive-shell.md).
 ## Setup
 
 ```sh
+git clone https://github.com/nathancrtr/stardew-planner-agent.git
+cd stardew-planner-agent
 npm install
 npx playwright install chromium
 cp .env.example .env   # add your Anthropic API key
@@ -72,8 +74,10 @@ mouse events, so every placement goes through the app's own pointer pipeline:
    buildings/craftables, click-and-drag rows for crop/path fills (MULTI brush)
 3. Placement verified against `planner.tiles[row][col]`; failures are reported per action
 
-Claude gets a compact catalog of all ~650 placeable object ids (dumped from the live
-site into `data/catalog.json` via `npx tsx src/dump-catalog.ts`), farm grid geometry,
+Claude gets a compact catalog of ~650 placeable object ids — crops, craftables,
+buildings, and misc; the 578 furniture ids are left out of the prompt to save tokens
+(the full set is dumped from the live site into `data/catalog.json` via
+`npx tsx src/dump-catalog.ts`) — plus farm grid geometry,
 and sprinkler/scarecrow/junimo coverage rules, and returns a schema-validated plan
 (`zodOutputFormat` + `messages.parse`).
 
@@ -94,3 +98,7 @@ See `NOTES.md` for the full reverse-engineering notes on the planner's internals
 | `src/types.ts` | Zod schemas for the v1 plan format |
 | `src/probe*.ts`, `src/dump-catalog.ts` | Dev tools used to reverse-engineer the site |
 | `docs/agent-harness.md` | v2 architecture plan + agent-concepts primer |
+
+## License
+
+[MIT](LICENSE)
