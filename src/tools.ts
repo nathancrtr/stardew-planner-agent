@@ -74,6 +74,21 @@ export const TOOLS: Anthropic.Tool[] = [
     input_schema: { type: "object", properties: {} },
   },
   {
+    name: "zoom_reference",
+    description:
+      "Magnify a rectangular region of the user's attached reference image (provided via /image). The full image renders 1x1 objects — sprinklers, scarecrows, paths — at only a few pixels, so zoom into each major area BEFORE building to inventory exactly what's there, and again whenever you're unsure what an object is. Region is in percentages of the image (0-100): the top-left quadrant is left_pct=0, top_pct=0, width_pct=50, height_pct=50. Regions <= 50% per side give the most useful magnification.",
+    input_schema: {
+      type: "object",
+      properties: {
+        left_pct: { type: "integer", description: "left edge, % of image width (0-100)" },
+        top_pct: { type: "integer", description: "top edge, % of image height (0-100)" },
+        width_pct: { type: "integer" },
+        height_pct: { type: "integer" },
+      },
+      required: ["left_pct", "top_pct", "width_pct", "height_pct"],
+    },
+  },
+  {
     name: "switch_layout",
     description:
       "Switch the farm layout. Official names: regular, combat (wilderness), fishing (riverlands), foraging (forest), mining (hilltop), ranching (meadowlands), beach, fourcorners, ginger_island, quarry. Only call when the user asks for a non-standard farm; it clears the board.",
@@ -98,11 +113,17 @@ export interface ToolOutcome {
   log: string;
 }
 
+export interface ReferenceImage {
+  data: string; // base64
+  mediaType: string;
+}
+
 /** Execute one tool call against the live session. Never throws — errors become tool results. */
 export async function runTool(
   session: PlannerSession,
   name: string,
   input: Record<string, unknown>,
+  reference?: ReferenceImage,
 ): Promise<ToolOutcome> {
   try {
     switch (name) {
@@ -146,6 +167,29 @@ export async function runTool(
           content: [
             { type: "image", source: { type: "base64", media_type: "image/png", data: png.toString("base64") } },
             { type: "text", text: "current board" },
+          ],
+        };
+      }
+      case "zoom_reference": {
+        if (!reference) {
+          return err("no reference image in this session — the user attaches one with '/image <path>'");
+        }
+        const { left_pct, top_pct, width_pct, height_pct } = input as {
+          left_pct: number; top_pct: number; width_pct: number; height_pct: number;
+        };
+        const clamp = (n: number) => Math.min(100, Math.max(0, n));
+        const left = clamp(left_pct);
+        const top = clamp(top_pct);
+        const width = Math.min(clamp(width_pct), 100 - left);
+        const height = Math.min(clamp(height_pct), 100 - top);
+        if (width <= 0 || height <= 0) return err("region is empty after clamping to the image bounds");
+        const png = await session.magnifyImage(reference.data, reference.mediaType, left / 100, top / 100, width / 100, height / 100);
+        return {
+          isError: false,
+          log: `magnified reference region ${left}%,${top}% ${width}x${height}% (${Math.round(png.length / 1024)} KB)`,
+          content: [
+            { type: "image", source: { type: "base64", media_type: "image/png", data: png.toString("base64") } },
+            { type: "text", text: `reference image, region left=${left}% top=${top}% width=${width}% height=${height}%, magnified` },
           ],
         };
       }

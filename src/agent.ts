@@ -4,7 +4,7 @@ import { extname } from "node:path";
 import readline from "node:readline/promises";
 import { catalogPromptText } from "./catalog.js";
 import { PlannerSession } from "./session.js";
-import { TOOLS, runTool } from "./tools.js";
+import { TOOLS, runTool, type ReferenceImage } from "./tools.js";
 
 const SYSTEM = `You are a Stardew Valley farm-layout agent driving the stardew.info/planner (V3)
 board through tools. You design AND build the layout the user asks for, verifying your
@@ -17,7 +17,11 @@ those references from the conversation and adjust the board accordingly.
   edge, row 0 is the TOP edge (rows increase downward).
 - On the regular farm the farmhouse sits with anchor at (column 59, row 16) (9x5 footprint,
   extending right and up from there) and the greenhouse at (column 24, row 17) (7x8). Leave
-  those areas clear. The top ~10 rows, the far edges, and scattered ponds/cliffs are
+  those areas clear. Both already exist on the board as map fixtures; their appearance in
+  a reference image can vary (e.g. the greenhouse may be shown ruined/under construction
+  or completed, and other tools may draw them elsewhere). When recreating from a
+  reference, don't place buildings to duplicate them — if a placement is rejected because
+  the tile holds "greenhouse" or "farmhouse", the building you saw is that fixture. The top ~10 rows, the far edges, and scattered ponds/cliffs are
   unbuildable; prefer the open central farmland (roughly columns 6-72, rows 18-60) unless
   the user directs otherwise.
 - A tile holds exactly ONE object. Crops cannot share a tile with sprinklers, scarecrows,
@@ -40,11 +44,16 @@ those references from the conversation and adjust the board accordingly.
 - When the user asks you to modify something you built, erase exactly the affected region
   and rebuild it at the new location — don't disturb unrelated parts of the board. If a
   request is ambiguous, ask the user instead of guessing.
-- The user may attach a reference image of a farm to recreate. Build a best-effort
-  approximation: identify the major structures and fields, estimate their tile
-  coordinates and sizes, build, then screenshot once to compare against the reference
-  and fix the largest deviations. Substitute the closest catalog item for anything you
-  can't identify exactly, and say what you approximated.
+- The user may attach a reference image of a farm to recreate. At full-image scale a
+  1x1 object (sprinkler, scarecrow, torch) is only a few pixels — you WILL miss them
+  unless you look closer. So inventory first: zoom_reference into each major area and
+  list what is actually there before placing anything. Inside crop fields, regularly
+  spaced non-crop dots are usually sprinklers — infer the type from the spacing
+  (iridium every 5th tile, quality every 3rd). Recreate only what the reference shows:
+  do not add objects it doesn't contain, and don't omit ones it does. Then build,
+  screenshot once, compare against the reference, and fix the largest deviations.
+  Substitute the closest catalog item for anything you can't identify exactly, and say
+  what you approximated.
 - When the build matches the request, stop and summarize what you built and where.
   Mention anything you had to adapt and why.
 
@@ -104,6 +113,8 @@ interface AgentContext {
   totalTurns: number;
   transcriptPath: string;
   firstRequest: string;
+  /** latest user-attached image (via /image) — the zoom_reference tool reads it */
+  reference?: ReferenceImage;
 }
 
 async function openContext(request: string, opts: AgentOptions): Promise<AgentContext> {
@@ -129,6 +140,12 @@ async function openContext(request: string, opts: AgentOptions): Promise<AgentCo
  */
 async function agentTurn(ctx: AgentContext, userContent: string | Anthropic.ContentBlockParam[]): Promise<void> {
   ctx.messages.push({ role: "user", content: userContent });
+  if (Array.isArray(userContent)) {
+    const img = userContent.find((b): b is Anthropic.ImageBlockParam => b.type === "image");
+    if (img && img.source.type === "base64") {
+      ctx.reference = { data: img.source.data, mediaType: img.source.media_type };
+    }
+  }
 
   let turns = 0;
   while (turns < ctx.maxTurnsPerRequest) {
@@ -191,7 +208,7 @@ async function agentTurn(ctx: AgentContext, userContent: string | Anthropic.Cont
     );
     const results: Anthropic.ToolResultBlockParam[] = [];
     for (const call of toolUses) {
-      const outcome = await runTool(ctx.session, call.name, call.input as Record<string, unknown>);
+      const outcome = await runTool(ctx.session, call.name, call.input as Record<string, unknown>, ctx.reference);
       console.log(`${outcome.isError ? "✗" : "✓"} [turn ${ctx.totalTurns}] ${call.name}(${shortArgs(call.input)}) — ${outcome.log}`);
       results.push({
         type: "tool_result",

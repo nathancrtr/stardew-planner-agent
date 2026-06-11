@@ -166,6 +166,41 @@ export class PlannerSession {
     return canvas.screenshot({ type: "png" });
   }
 
+  /**
+   * Crop a fractional region (0-1) of an arbitrary image and upscale it so
+   * small objects become legible (nearest-neighbor — the planner art is pixel
+   * art, so it stays crisp). Runs in a blank browser page because Node has no
+   * built-in image codec, and the planner page's CSP shouldn't be a factor.
+   */
+  async magnifyImage(base64: string, mediaType: string, left: number, top: number, width: number, height: number): Promise<Buffer> {
+    const page = await this.getUtilPage();
+    const dataUrl = (await page.evaluate(`(async () => {
+      const img = new Image();
+      img.src = ${JSON.stringify(`data:${mediaType};base64,${base64}`)};
+      await img.decode();
+      const sx = Math.floor(img.naturalWidth * ${left});
+      const sy = Math.floor(img.naturalHeight * ${top});
+      const sw = Math.max(1, Math.round(img.naturalWidth * ${width}));
+      const sh = Math.max(1, Math.round(img.naturalHeight * ${height}));
+      const scale = Math.max(1, Math.min(8, 1400 / Math.max(sw, sh)));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(sw * scale);
+      canvas.height = Math.round(sh * scale);
+      const ctx = canvas.getContext("2d");
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+      return canvas.toDataURL("image/png");
+    })()`)) as string;
+    return Buffer.from(dataUrl.slice(dataUrl.indexOf(",") + 1), "base64");
+  }
+
+  private utilPage?: Page;
+
+  private async getUtilPage(): Promise<Page> {
+    if (!this.utilPage || this.utilPage.isClosed()) this.utilPage = await this.browser.newPage();
+    return this.utilPage;
+  }
+
   async savePlan(): Promise<OpResult> {
     const saved = (await this.page.evaluate(`window.planner.savePlan()`)) as { id?: string } | undefined;
     return saved?.id
