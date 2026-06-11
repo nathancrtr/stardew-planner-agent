@@ -95,6 +95,12 @@ export class PlannerSession {
   async fillArea(item: string, column: number, row: number, width: number, height: number): Promise<OpResult> {
     return this.withModalRetry(async () => {
       await this.selectItem(item);
+      // The site gives craftables/furniture a SINGLE brush (one object per
+      // drag); only crops/flooring/fences get the MULTI rectangle brush.
+      // Force MULTI — changeGhostSprite just reset it from the item's group —
+      // so 1x1 machines (kegs, jars) drag-fill like crops. The MULTI mouseup
+      // handler runs the same per-tile restriction checks either way.
+      await this.page.evaluate(`window.planner.brushMode = "multi"`);
       for (let r = row; r < row + height; r++) {
         const start = await this.tileToPage(column, r);
         const end = await this.tileToPage(column + width - 1, r);

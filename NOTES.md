@@ -63,3 +63,10 @@ exposes a global `window.planner` object which is the whole API surface.
   names: regular, combat (=wilderness), fishing (=riverlands), foraging
   (=forest), mining (=hilltop), ranching (=meadowlands), beach, fourcorners,
   ginger_island, quarry.
+- `brushMode` (`"single"`/`"multi"`) is set by `changeBrushMode` inside
+  `changeGhostSprite` from the item's group: FURNITURE/BUILDINGS/CRAFTABLES
+  groups and TREES/GIANT_CROPS subgroups get `single` (a drag places ONE
+  object); everything else (crops, flooring, fences) gets `multi` (drag paints
+  a ghost rectangle, placed on mouseup with per-tile restriction checks).
+  To drag-fill 1x1 craftables (kegs etc.), set `planner.brushMode = "multi"`
+  AFTER `changeGhostSprite` — the same mouseup pipeline handles them fine.

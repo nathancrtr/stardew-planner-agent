@@ -24,7 +24,7 @@ export const TOOLS: Anthropic.Tool[] = [
   {
     name: "fill_area",
     description:
-      "Paint a rectangle of a 1x1 item (crops, paths, flooring, fences). (column, row) is the TOP-LEFT corner; extends `width` right and `height` down. Tiles that are already occupied are skipped automatically, so you can fill a whole field after placing sprinklers/buildings inside it. Returns how many tiles in the region are now occupied.",
+      "Paint a rectangle of any 1x1 item (crops, paths, flooring, fences, and 1x1 machines like kegs or preserves jars). (column, row) is the TOP-LEFT corner; extends `width` right and `height` down. Tiles that are already occupied are skipped automatically, so you can fill a whole field after placing sprinklers/buildings inside it. Returns how many tiles in the region are now occupied.",
     input_schema: {
       type: "object",
       properties: {
