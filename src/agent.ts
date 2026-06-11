@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { extname } from "node:path";
 import readline from "node:readline/promises";
 import { catalogPromptText } from "./catalog.js";
 import { PlannerSession } from "./session.js";
@@ -39,11 +40,51 @@ those references from the conversation and adjust the board accordingly.
 - When the user asks you to modify something you built, erase exactly the affected region
   and rebuild it at the new location — don't disturb unrelated parts of the board. If a
   request is ambiguous, ask the user instead of guessing.
+- The user may attach a reference image of a farm to recreate. Build a best-effort
+  approximation: identify the major structures and fields, estimate their tile
+  coordinates and sizes, build, then screenshot once to compare against the reference
+  and fix the largest deviations. Substitute the closest catalog item for anything you
+  can't identify exactly, and say what you approximated.
 - When the build matches the request, stop and summarize what you built and where.
   Mention anything you had to adapt and why.
 
 # Item catalog (exact ids)
 ${catalogPromptText()}`;
+
+type ImageMediaType = "image/png" | "image/jpeg" | "image/webp" | "image/gif";
+const IMAGE_MEDIA_TYPES: Record<string, ImageMediaType> = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".webp": "image/webp",
+  ".gif": "image/gif",
+};
+
+/**
+ * `/image <path> [instructions]` attaches a local image (e.g. a screenshot of a
+ * farm to recreate) to the request; quote the path if it contains spaces.
+ * Anything else passes through as plain text. Throws (before touching message
+ * history) if the path is missing, unreadable, or not an image.
+ */
+export function toUserContent(text: string): string | Anthropic.ContentBlockParam[] {
+  if (!/^\/image\b/.test(text)) return text;
+  const rest = text.slice("/image".length).trim();
+  const match = rest.match(/^"([^"]+)"\s*([\s\S]*)$/) ?? rest.match(/^(\S+)\s*([\s\S]*)$/);
+  if (!match) throw new Error("usage: /image <path> [instructions]");
+  const [, path, instructions] = match;
+  const mediaType = IMAGE_MEDIA_TYPES[extname(path).toLowerCase()];
+  if (!mediaType) {
+    throw new Error(`unsupported image type "${extname(path) || path}" — use .png/.jpg/.jpeg/.webp/.gif`);
+  }
+  const data = readFileSync(path);
+  return [
+    { type: "image", source: { type: "base64", media_type: mediaType, data: data.toString("base64") } },
+    {
+      type: "text",
+      text: instructions.trim() || "Recreate the farm layout in this image on the board, as closely as you reasonably can.",
+    },
+  ];
+}
 
 export interface AgentOptions {
   headless?: boolean;
@@ -86,8 +127,8 @@ async function openContext(request: string, opts: AgentOptions): Promise<AgentCo
  * One operator request: append it, then run the agent loop (stream → execute
  * tools → feed back results) until the model ends its turn.
  */
-async function agentTurn(ctx: AgentContext, userText: string): Promise<void> {
-  ctx.messages.push({ role: "user", content: userText });
+async function agentTurn(ctx: AgentContext, userContent: string | Anthropic.ContentBlockParam[]): Promise<void> {
+  ctx.messages.push({ role: "user", content: userContent });
 
   let turns = 0;
   while (turns < ctx.maxTurnsPerRequest) {
@@ -199,7 +240,7 @@ export async function runAgent(request: string, opts: AgentOptions = {}): Promis
   try {
     await agentTurn(
       ctx,
-      opts.save ? `${request}\n\n(When you're done, call save_plan and give me the share URL.)` : request,
+      toUserContent(opts.save ? `${request}\n\n(When you're done, call save_plan and give me the share URL.)` : request),
     );
     await wrapUp(ctx, opts.headless ?? false);
   } finally {
@@ -252,8 +293,8 @@ export async function runInteractive(initialRequest: string | undefined, opts: A
   const ctx = await openContext(initialRequest ?? "(interactive session)", opts);
   const input = lineSource();
   try {
-    if (initialRequest) await agentTurn(ctx, initialRequest);
-    else console.log("interactive session — describe what to build ('exit' to finish)");
+    if (initialRequest) await agentTurn(ctx, toUserContent(initialRequest));
+    else console.log("interactive session — describe what to build ('/image <path>' to attach a reference, 'exit' to finish)");
 
     while (true) {
       const line = await input.next();
@@ -261,7 +302,14 @@ export async function runInteractive(initialRequest: string | undefined, opts: A
       const text = line.trim();
       if (!text) continue;
       if (["exit", "quit", "q"].includes(text.toLowerCase())) break;
-      await agentTurn(ctx, text);
+      let content: string | Anthropic.ContentBlockParam[];
+      try {
+        content = toUserContent(text);
+      } catch (e) {
+        console.error(`✗ ${e instanceof Error ? e.message : e}`);
+        continue;
+      }
+      await agentTurn(ctx, content);
     }
 
     if (opts.save) await agentTurn(ctx, "We're done — call save_plan and give me the share URL.");

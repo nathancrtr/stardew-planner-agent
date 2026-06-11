@@ -84,4 +84,6 @@ record survives any exit path.
 Deliberately out of scope: interrupting the agent mid-turn (needs request abort +
 careful transcript repair), compaction (see §4), and slash-commands beyond `exit` —
 anything you'd type ("take a screenshot", "save the plan") is already a capability the
-model has via tools, so plain language is the command set.
+model has via tools, so plain language is the command set. (One slash-command was added
+later: `/image <path>` attaches a local reference image to the request — the exception
+that proves the rule, since image input can't be expressed as a line of text.)

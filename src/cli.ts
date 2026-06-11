@@ -13,6 +13,10 @@ Modes:
                     flower patch three tiles right") until you type 'exit'
   --oneshot         v1 workflow — Claude plans once, code executes open-loop
 
+A request (CLI or shell prompt) starting with '/image <path> [instructions]' attaches
+a local image — e.g. a screenshot of a farm to recreate (best-effort). Quote paths
+containing spaces.
+
 Options:
   --headless        run the browser invisibly (default: headed, watchable)
   --save            save the plan on stardew.info and print the share URL
@@ -23,6 +27,7 @@ Options:
 
 Examples:
   npm run agent -- "Place a Junimo Hut in the center of a standard farm, surrounded by a perfect grid of Iridium Sprinklers and Ancient Fruit crops"
+  npm run agent -- -i "/image my-farm.png recreate this layout"
   npm run agent -- --oneshot --plan plans/my-plan.json --headless`;
 
 async function main() {

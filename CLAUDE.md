@@ -13,6 +13,7 @@ npm install && npx playwright install chromium   # one-time setup
 npm run typecheck                                # tsc --noEmit — the only check; there are no tests or linter
 npm run agent -- "<request>"                     # agentic mode (headed browser, watchable)
 npm run agent -- -i                              # interactive REPL session
+npm run agent -- "/image farm.png recreate this" # attach a reference image (CLI or REPL line)
 npm run agent -- --oneshot "..." --dry-run       # v1: plan only, no browser, prints JSON
 npm run agent -- "..." --headless                # software-GL browser (CI/sandbox-friendly)
 npx tsx src/dump-catalog.ts                      # regenerate data/catalog.json from the live site

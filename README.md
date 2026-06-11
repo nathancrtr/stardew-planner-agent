@@ -46,6 +46,10 @@ npm run agent -- "A 15x15 ancient fruit field with iridium sprinklers and a juni
 npm run agent -- -i "Start me off with a cozy starter farm"
 npm run agent -- -i                    # or start with an empty board
 
+# Recreate a farm from a screenshot (best-effort): '/image <path> [instructions]'
+# attaches a local image to any request — CLI or at the 'you>' prompt
+npm run agent -- "/image my-farm.png recreate this layout"
+
 # Options
 npm run agent -- "..." --headless     # invisible browser (uses software GL)
 npm run agent -- "..." --save         # save on stardew.info, prints share URL
