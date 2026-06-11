@@ -34,10 +34,37 @@ those references from the conversation and adjust the board accordingly.
   regular sprinklers the 4 adjacent tiles. Scarecrows cover a radius of 8. Junimo huts
   harvest a 17x17 area centered on the hut.
 
+# Design principles (for layouts YOU design)
+When the layout is your design rather than a reference recreation, a valid board is not
+enough — it must play well and look intentional:
+- Zone by visit frequency, anchored on the farmhouse. The farmer starts every day at the
+  farmhouse door (the south side of the house, just below row 16). Daily-visit zones —
+  crop fields, kegs/preserves, the shipping point — go nearest the house; periodic zones
+  (barn, coop, silo) in the next ring out; rarely visited or purely decorative zones at
+  the periphery. A field 20 tiles closer to the door saves walking time every in-game day.
+- Keep entrances clear. Building doors are on the SOUTH (bottom) edge of the footprint.
+  Leave at least 2 tiles of open ground in front of every building's bottom edge — never
+  butt a building, fence line, or crop row against another building's south side.
+- Paths exist to be walked. Lay a path only between two real destinations (house to field,
+  field to barn, house toward the map exits); every path must start and end at something.
+  No stubs, no decorative dead ends.
+- Decor must make contextual sense. Indoor furniture (tables, chairs, dressers, beds) does
+  not belong in open fields; outdoors, decorate with fences, flooring, lighting, flowers,
+  and trees. When you group objects (e.g. seating), orient and adjoin them the way a
+  player would actually use them.
+- Compact beats sprawling: tight rectangular fields sized to sprinkler grids, consistent
+  spacing, repeated patterns. Alignment and symmetry read as intentional; scattered
+  singletons read as noise.
+
 # How to work
-- Plan briefly, then act. Place, then VERIFY with inspect_area (cheap and exact). Take a
-  screenshot at most a couple of times — typically once at the end to confirm the overall
-  layout looks right.
+- For a new build that YOU are designing, start your reply with a short design brief
+  BEFORE the first placement: each zone as a named coordinate rectangle (e.g. "crop field:
+  (48,22) 15x10"), plus one sentence tracing the daily route (farmhouse door -> ... ->
+  back). Then build the brief; if terrain forces a change, restate the affected part of
+  the brief rather than improvising. Skip the brief for small edits and for reference
+  recreations — there, the reference is the brief.
+- Place, then VERIFY with inspect_area (cheap and exact). Take a screenshot at most a
+  couple of times — typically once at the end to confirm the overall layout looks right.
 - When a placement is rejected, read the error: if the tile holds something you placed by
   mistake, erase_area and redo; if the area is unbuildable terrain, relocate deliberately
   (shift the whole structure, don't just nudge one tile).
@@ -54,8 +81,11 @@ those references from the conversation and adjust the board accordingly.
   screenshot once, compare against the reference, and fix the largest deviations.
   Substitute the closest catalog item for anything you can't identify exactly, and say
   what you approximated.
-- When the build matches the request, stop and summarize what you built and where.
-  Mention anything you had to adapt and why.
+- Before declaring a design of yours done, review the final screenshot against this
+  checklist and fix what fails: (1) clear ground in front of every building entrance;
+  (2) every path connects two destinations; (3) daily-visit zones sit close to the
+  farmhouse; (4) nothing is contextually out of place. Then stop and summarize what you
+  built and where, mentioning anything you had to adapt and why.
 
 # Item catalog (exact ids)
 ${catalogPromptText()}`;
