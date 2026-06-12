@@ -30,7 +30,13 @@ exposes a global `window.planner` object which is the whole API surface.
   sprite object, so from any tile of a building you can recover its anchor:
   `col = x/16`, `bottomRow = y/16 - 1` (verified live).
 - `checkRestriction` / `restrictionLayers` (`accessible`, `buildable`,
-  `tillable`) validate placement.
+  `tillable`) validate placement. Each layer is an array of RESTRICTED-tile
+  keys formatted `"col, row"` (note the space; built as
+  `"".concat(column,", ").concat(row)`); `restrictionLayersExist` guards it.
+  Which layer applies to an item comes from `objectData.restrictionLayer`
+  (defaults to none → unrestricted). Verified live 2026-06-12: the regular
+  farm's right-edge pond shows up as `buildable` entries at cols ~70-75,
+  rows 31-33 plus the cols 77-79 edge strip.
 - `loadLayout(layoutObj)` switches farm map; `planner.layouts` is a dict:
   `regular`, `combat`, `fishing`, ... Regular farm: 1280×1040 world px =
   **80 cols × 65 rows**; house at col 59 row 16, greenhouse col 24 row 17.
@@ -60,7 +66,17 @@ exposes a global `window.planner` object which is the whole API surface.
 - The "Low PERFORMANCE detected" modal is FPS-triggered and appears several
   seconds *after* page load (always under SwiftShader). It silently eats all
   canvas clicks. The executor dismisses modals before every action and retries
-  a failed action once after re-dismissing.
+  a failed action once — but ONLY if re-dismissing actually closed a modal
+  (blind retries of false-negative "failures" placed duplicate objects).
+- Wild trees (TREES subgroup: `oak-tree`, `pine-tree`, `maple-tree`,
+  `green-tree-*`, ...) register ONE COLUMN RIGHT of the clicked tile (verified
+  live 2026-06-12: click (12,19) → tree occupies (13,19)). Reading back the
+  clicked tile therefore reports a false failure; `session.ts` verifies all
+  mutations by diffing a board-state snapshot around the target instead.
+- The ERASER removes a whole multi-tile building when the drag touches ANY
+  tile of its footprint (verified live: a 1x1 erase on one barn tile deleted
+  all 28 tiles). This is almost certainly how a deluxe barn silently vanished
+  in run-1781236036027; erase results now itemize what was removed.
 - Crop ids are SEED ids (`ancient-seeds`, not `ancient-fruit`). Official layout
   names: regular, combat (=wilderness), fishing (=riverlands), foraging
   (=forest), mining (=hilltop), ranching (=meadowlands), beach, fourcorners,

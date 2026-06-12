@@ -10,7 +10,7 @@ export const TOOLS: Anthropic.Tool[] = [
   {
     name: "place_item",
     description:
-      "Place a single object on the board. (column, row) is the object's ANCHOR tile — the BOTTOM-LEFT tile of its footprint; a WxH building extends RIGHT and UP from there. Fails with a reason if the tile is occupied or restricted. For buildings with a human door the result reports the door tile and WARNS if a door's approach is blocked — fix those warnings. Use this for buildings, sprinklers, scarecrows, machines, and other one-off objects.",
+      "Place a single object on the board. (column, row) is the object's ANCHOR tile — the BOTTOM-LEFT tile of its footprint; a WxH building extends RIGHT and UP from there. The result reports the EXACT rectangle of tiles the object now occupies (read it — later placements must not overlap it), the door tile for buildings, and WARNS if a door's approach is blocked — fix those warnings. Failures distinguish an occupied tile from restricted terrain (water/cliff/edge); restricted terrain means relocate — the same coordinates will never work. Use this for buildings, sprinklers, scarecrows, machines, and other one-off objects.",
     input_schema: {
       type: "object",
       properties: {
@@ -24,7 +24,7 @@ export const TOOLS: Anthropic.Tool[] = [
   {
     name: "fill_area",
     description:
-      "Paint a rectangle of any 1x1 item (crops, paths, flooring, fences, and 1x1 machines like kegs or preserves jars). (column, row) is the TOP-LEFT corner; extends `width` right and `height` down. Tiles that are already occupied are skipped automatically, so you can fill a whole field after placing sprinklers/buildings inside it. Returns how many tiles in the region are now occupied, and WARNS if the fill buried the approach tile of a building's door.",
+      "Paint a rectangle of any 1x1 item (crops, paths, flooring, fences, and 1x1 machines like kegs or preserves jars). (column, row) is the TOP-LEFT corner; extends `width` right and `height` down. Tiles that are already occupied are skipped automatically, so you can fill a whole field after placing sprinklers/buildings inside it. Returns exactly how many tiles were placed vs. skipped, NOTES anything that registered outside the requested region, and WARNS if the fill removed something or buried the approach tile of a building's door — act on those.",
     input_schema: {
       type: "object",
       properties: {
@@ -40,7 +40,7 @@ export const TOOLS: Anthropic.Tool[] = [
   {
     name: "erase_area",
     description:
-      "Erase all objects in a rectangle. (column, row) is the TOP-LEFT corner. Use this to correct mistakes before re-placing.",
+      "Erase all objects in a rectangle. (column, row) is the TOP-LEFT corner. Use this to correct mistakes before re-placing. Returns an itemized breakdown of what was erased — READ IT and verify it matches what you intended: touching any tile of a multi-tile building removes the whole building, and the breakdown will warn when the erase reached outside the requested region.",
     input_schema: {
       type: "object",
       properties: {
@@ -55,7 +55,7 @@ export const TOOLS: Anthropic.Tool[] = [
   {
     name: "inspect_area",
     description:
-      "Read the exact occupant ids of a rectangle of tiles as text ('.' = empty). Far cheaper than a screenshot and exact — prefer this to verify placements. Keep regions <= 25x25.",
+      "Read the exact occupant ids of a rectangle of tiles as text ('.' = empty buildable ground, '~' = unbuildable terrain such as water/cliffs/edges — never place there). Far cheaper than a screenshot and exact — prefer this to verify placements, and use it to map terrain before siting buildings. Keep regions <= 25x25.",
     input_schema: {
       type: "object",
       properties: {

@@ -22,8 +22,8 @@ those references from the conversation and adjust the board accordingly.
   or completed, and other tools may draw them elsewhere). When recreating from a
   reference, don't place buildings to duplicate them — if a placement is rejected because
   the tile holds "greenhouse" or "farmhouse", the building you saw is that fixture. The top ~10 rows, the far edges, and scattered ponds/cliffs are
-  unbuildable; prefer the open central farmland (roughly columns 6-72, rows 18-60) unless
-  the user directs otherwise.
+  unbuildable — inspect_area renders unbuildable tiles as "~"; prefer the open central
+  farmland (roughly columns 6-72, rows 18-60) unless the user directs otherwise.
 - A tile holds exactly ONE object. Crops cannot share a tile with sprinklers, scarecrows,
   paths, or buildings. Place buildings/sprinklers FIRST, then fill crops around them —
   fill_area skips occupied tiles automatically.
@@ -60,6 +60,11 @@ enough — it must play well and look intentional:
   singletons read as noise.
 
 # How to work
+- SURVEY before you build. On a fresh board, take ONE screenshot first and note where
+  ponds, cliffs, and other unbuildable terrain sit, then design around them — a building
+  placed blind onto water wastes a whole correction cycle. Where a zone borders suspect
+  terrain, confirm the exact boundary with inspect_area ("~" = unbuildable) before
+  committing buildings to it.
 - For a new build that YOU are designing, start your reply with a short design brief
   BEFORE the first placement: each zone as a named coordinate rectangle (e.g. "crop field:
   (48,22) 15x10"), plus one sentence tracing the daily route (farmhouse door -> ... ->
@@ -67,10 +72,19 @@ enough — it must play well and look intentional:
   the brief rather than improvising. Skip the brief for small edits and for reference
   recreations — there, the reference is the brief.
 - Place, then VERIFY with inspect_area (cheap and exact). Take a screenshot at most a
-  couple of times — typically once at the end to confirm the overall layout looks right.
+  couple of times — typically the initial terrain survey and once at the end to confirm
+  the overall layout looks right.
+- Batch related placements in one turn, but keep a batch to about 15 tool calls. Beyond
+  that, errors pile up faster than you can react to them — a smaller batch lets you read
+  the results and adapt before committing the next zone.
 - When a placement is rejected, read the error: if the tile holds something you placed by
-  mistake, erase_area and redo; if the area is unbuildable terrain, relocate deliberately
-  (shift the whole structure, don't just nudge one tile).
+  mistake, erase_area and redo; if the result says restricted terrain, relocate
+  deliberately (shift the whole structure, don't just nudge one tile) — retrying the
+  same coordinates can never succeed.
+- When a tool result surprises you and you need to experiment (an item that won't place,
+  odd registration), probe on VERIFIED ground: erase a tile where a placement just
+  succeeded, run the test there, then erase the test object. On unverified ground the
+  experiment is confounded — you can't tell an item problem from a terrain problem.
 - When the user asks you to modify something you built, erase exactly the affected region
   and rebuild it at the new location — don't disturb unrelated parts of the board. If a
   request is ambiguous, ask the user instead of guessing.
@@ -150,6 +164,54 @@ interface AgentContext {
   reference?: ReferenceImage;
 }
 
+/**
+ * Place prompt-cache breakpoints on the transcript. The API's cache lookback
+ * is 20 content blocks: a request's breakpoint only finds the previous
+ * request's cache entry if it sits within 20 blocks of it. Our batched tool
+ * turns can append 30-60 blocks at once (assistant tool_use blocks + their
+ * tool_results), which silently missed the cache and re-wrote the whole
+ * transcript at the 1.25x write rate — measured at ~half the cost of a long
+ * run. So instead of one auto-placed marker at the end, walk back from the
+ * end and drop a marker at least every CACHE_MAX_GAP blocks (3 markers max —
+ * the 4th allowed breakpoint is on the system prompt). Returns a cloned
+ * message list so markers never accumulate on the persistent transcript.
+ */
+const CACHE_MAX_GAP = 18;
+
+export function withCacheBreakpoints(messages: Anthropic.MessageParam[]): Anthropic.MessageParam[] {
+  // Flat list of cloned blocks in prompt order; thinking blocks must be
+  // replayed byte-identical, so they are ineligible to carry a marker.
+  const flat: { block: Record<string, unknown> | null; eligible: boolean }[] = [];
+  const cloned = messages.map((m) => {
+    if (typeof m.content === "string") {
+      flat.push({ block: null, eligible: false });
+      return m;
+    }
+    const content = m.content.map((b) => {
+      const { cache_control: _stale, ...rest } = b as unknown as Record<string, unknown>;
+      const clone = { ...rest };
+      flat.push({
+        block: clone,
+        eligible: clone.type !== "thinking" && clone.type !== "redacted_thinking",
+      });
+      return clone;
+    });
+    return { ...m, content };
+  });
+  let markers = 3;
+  let gap = 0; // blocks since the last marker placed (walking backward)
+  for (let i = flat.length - 1; i >= 0 && markers > 0; i--) {
+    gap++;
+    const wantMarker = i === flat.length - 1 || gap >= CACHE_MAX_GAP;
+    if (wantMarker && flat[i].eligible && flat[i].block) {
+      flat[i].block!.cache_control = { type: "ephemeral" };
+      markers--;
+      gap = 0;
+    }
+  }
+  return cloned as Anthropic.MessageParam[];
+}
+
 async function openContext(request: string, opts: AgentOptions): Promise<AgentContext> {
   console.log("opening stardew.info/planner...");
   const session = await PlannerSession.open({ headless: opts.headless, pace: opts.pace });
@@ -192,10 +254,11 @@ async function agentTurn(ctx: AgentContext, userContent: string | Anthropic.Cont
       model: ctx.model,
       max_tokens: 64000,
       thinking: { type: "adaptive", display: "summarized" },
-      system: [{ type: "text", text: SYSTEM, cache_control: { type: "ephemeral" } }],
+      // 1h TTL: the system prompt never changes within a session, and in
+      // interactive mode the human can idle past the default 5-minute TTL.
+      system: [{ type: "text", text: SYSTEM, cache_control: { type: "ephemeral", ttl: "1h" } }],
       tools: TOOLS,
-      messages: ctx.messages,
-      cache_control: { type: "ephemeral" }, // auto-cache the growing transcript
+      messages: withCacheBreakpoints(ctx.messages),
     });
 
     const DIM = "\x1b[2m";
