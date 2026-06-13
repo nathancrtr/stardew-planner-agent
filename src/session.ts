@@ -244,10 +244,28 @@ export class PlannerSession {
         };
       }
 
+      // Check for water/cliff tiles in the region using the buildable restriction
+      // layer (same one inspectArea uses for "~"). Some items (grass, flowers) have
+      // a looser restrictionLayer and the planner lets them land on water — warn so
+      // the model knows it placed items that will visually float on water.
+      const waterCount = (await this.page.evaluate(`(() => {
+        const p = window.planner;
+        if (!p.restrictionLayersExist || !p.restrictionLayers.buildable) return 0;
+        const blocked = new Set(p.restrictionLayers.buildable);
+        let n = 0;
+        for (let r = ${row}; r < ${row + height}; r++)
+          for (let c = ${column}; c < ${column + width}; c++)
+            if (blocked.has(c + ", " + r)) n++;
+        return n;
+      })()`)) as number;
+
       const lines: string[] = [
         `placed ${addedIn.length} "${item}" tiles in the ${width}x${height} region` +
           (preOccupied > 0 ? ` (${preOccupied} tiles were already occupied and skipped)` : ""),
       ];
+      if (waterCount > 0) {
+        lines.push(`WARNING: ${waterCount} tile(s) in this region overlap restricted terrain (water/cliffs/edges) — items placed there will appear floating on water; erase and re-fill avoiding those tiles`);
+      }
       if (addedOut.length > 0) {
         lines.push(`NOTE: the planner registered some outside the requested region: ${summarize(addedOut)}`);
       }

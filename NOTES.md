@@ -81,6 +81,23 @@ exposes a global `window.planner` object which is the whole API surface.
   names: regular, combat (=wilderness), fishing (=riverlands), foraging
   (=forest), mining (=hilltop), ranching (=meadowlands), beach, fourcorners,
   ginger_island, quarry.
+- Grass blending: `renderPostprocess()` (called after every placement, on BOTH
+  the single- and multi-brush mouseup paths) runs `grassRender()`, which for any
+  GRASS-subgroup tile calls `generateRandomGrass(tile)` once and hides the base
+  sprite. `generateRandomGrass` builds texture ids `[id, id+"-1", id+"-2"]`
+  (season-suffixed off-spring) and does `getObjectByName(x).texture` on each —
+  no null guard. This only works for the BASE ids `grass` and `blue-grass`
+  (whose `-1`/`-2` textures exist); placing any other grass variant (`grass-1`,
+  `grass-summer`, `blue-grass-2`, ...) makes the `-1`/`-2` lookup undefined and
+  the `.texture` read throws, so the tile never gets randomized/blended and shows
+  as a rigid grid sprite. compassRenderPass lists GRASS in its autotile guard but
+  has no texture-swap branch for it — grass "blending" is purely the per-tile
+  4-sprite randomization, NOT neighbor-aware autotiling, so a contiguous fill of
+  one base id blends regardless of MULTI vs single brush. Fix lives in
+  `catalog.ts` (only base ids are offered/placeable) + `tools.ts` (variant ids
+  redirected to base). Furniture has NO rotation and no directional variants:
+  each chair/bench/etc. has a single fixed facing baked into its sprite, varying
+  by item — verify facing by screenshot, can't be changed.
 - `brushMode` (`"single"`/`"multi"`) is set by `changeBrushMode` inside
   `changeGhostSprite` from the item's group: FURNITURE/BUILDINGS/CRAFTABLES
   groups and TREES/GIANT_CROPS subgroups get `single` (a drag places ONE

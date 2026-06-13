@@ -51,11 +51,39 @@ export function findItem(id: string): CatalogEntry | undefined {
   return c.crops[id] ?? c.craftables[id] ?? c.buildings[id] ?? c.misc[id] ?? c.furniture[id];
 }
 
+/**
+ * Map a grass-variant id the model might guess (`grass-1`, `grass-summer`,
+ * `blue-grass-2`, ...) onto the base id that blends correctly. Returns null for
+ * non-grass ids. See PLACEABLE_GRASS for why only the base id renders blended.
+ */
+export function baseGrassId(id: string): string | null {
+  if (id === "grass" || id.startsWith("grass-")) return "grass";
+  if (id === "blue-grass" || id.startsWith("blue-grass-")) return "blue-grass";
+  return null;
+}
+
+/**
+ * Grass tiles render as a blended, randomized surface only when the BASE grass
+ * item is placed: the site's `generateRandomGrass` builds texture ids `id`,
+ * `id-1`, `id-2` from the placed item and reads `.texture` on each. For the
+ * base `grass`/`blue-grass` those three textures exist; for any other grass
+ * variant (`grass-1`, `grass-summer`, `blue-grass-2`, ...) the `-1`/`-2`
+ * lookups are undefined and the blend generation throws — the tiles fall back
+ * to a rigid grid of identical sprites. So only the two base ids are safe to
+ * place; the rest are internal texture variants and we hide them from the model.
+ */
+const PLACEABLE_GRASS = new Set(["grass", "blue-grass"]);
+
+function isHiddenVariant(e: CatalogEntry): boolean {
+  return e.subGroup === "grass" && !PLACEABLE_GRASS.has(e.id);
+}
+
 /** Compact catalog listing for the planning prompt: "id WxH" per item. */
 export function catalogPromptText(): string {
   const c = loadCatalog();
   const fmt = (entries: Record<string, CatalogEntry>) =>
     Object.values(entries)
+      .filter((e) => !isHiddenVariant(e))
       .map((e) => {
         const fp = e.footprint;
         const size = fp?.width && fp?.height && (fp.width > 1 || fp.height > 1) ? ` ${fp.width}x${fp.height}` : "";

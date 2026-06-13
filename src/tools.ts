@@ -1,6 +1,16 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { PlannerSession } from "./session.js";
-import { findItem } from "./catalog.js";
+import { findItem, baseGrassId } from "./catalog.js";
+
+/**
+ * Only the base `grass`/`blue-grass` ids render as a blended surface (the
+ * site's randomized-grass generation breaks on every other variant). Redirect a
+ * variant id to its base so a near-miss still produces a continuous lawn.
+ */
+function normalizeGrass(item: string): string {
+  const base = baseGrassId(item);
+  return base && base !== item ? base : item;
+}
 
 /**
  * The agent's tool surface. Descriptions are written for the model — they are
@@ -128,7 +138,9 @@ export async function runTool(
   try {
     switch (name) {
       case "place_item": {
-        const { item, column, row } = input as { item: string; column: number; row: number };
+        const raw = input as { item: string; column: number; row: number };
+        const item = normalizeGrass(raw.item);
+        const { column, row } = raw;
         if (!findItem(item)) {
           return err(`unknown item id "${item}" — use exact ids from the catalog in your instructions`);
         }
@@ -136,9 +148,11 @@ export async function runTool(
         return r.ok ? text(r.detail) : err(r.detail);
       }
       case "fill_area": {
-        const { item, column, row, width, height } = input as Record<string, never> & {
+        const raw = input as Record<string, never> & {
           item: string; column: number; row: number; width: number; height: number;
         };
+        const item = normalizeGrass(raw.item);
+        const { column, row, width, height } = raw;
         if (!findItem(item)) {
           return err(`unknown item id "${item}" — use exact ids from the catalog in your instructions`);
         }
