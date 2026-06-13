@@ -4,12 +4,17 @@ import { findItem, baseGrassId } from "./catalog.js";
 
 /**
  * Only the base `grass`/`blue-grass` ids render as a blended surface (the
- * site's randomized-grass generation breaks on every other variant). Redirect a
- * variant id to its base so a near-miss still produces a continuous lawn.
+ * site's randomized-grass generation breaks on every other variant). Rather
+ * than silently rewriting a variant id to its base — which leaves the model
+ * unaware it guessed wrong — return an error message telling it to use the base
+ * id. Returns null when `item` needs no correction (base grass or non-grass).
  */
-function normalizeGrass(item: string): string {
+function grassVariantError(item: string): string | null {
   const base = baseGrassId(item);
-  return base && base !== item ? base : item;
+  if (base && base !== item) {
+    return `"${item}" is an internal grass texture variant that renders as a rigid grid, not a blended lawn — use the base id "${base}" instead.`;
+  }
+  return null;
 }
 
 /**
@@ -139,7 +144,9 @@ export async function runTool(
     switch (name) {
       case "place_item": {
         const raw = input as { item: string; column: number; row: number };
-        const item = normalizeGrass(raw.item);
+        const item = raw.item;
+        const grassErr = grassVariantError(item);
+        if (grassErr) return err(grassErr);
         const { column, row } = raw;
         if (!findItem(item)) {
           return err(`unknown item id "${item}" — use exact ids from the catalog in your instructions`);
@@ -151,7 +158,9 @@ export async function runTool(
         const raw = input as Record<string, never> & {
           item: string; column: number; row: number; width: number; height: number;
         };
-        const item = normalizeGrass(raw.item);
+        const item = raw.item;
+        const grassErr = grassVariantError(item);
+        if (grassErr) return err(grassErr);
         const { column, row, width, height } = raw;
         if (!findItem(item)) {
           return err(`unknown item id "${item}" — use exact ids from the catalog in your instructions`);
