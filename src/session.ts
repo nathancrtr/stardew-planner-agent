@@ -204,15 +204,22 @@ export class PlannerSession {
       // so 1x1 machines (kegs, jars) drag-fill like crops. The MULTI mouseup
       // handler runs the same per-tile restriction checks either way.
       await this.page.evaluate(`window.planner.brushMode = "multi"`);
-      for (let r = row; r < row + height; r++) {
-        const start = await this.tileToPage(column, r);
-        const end = await this.tileToPage(column + width - 1, r);
-        await this.page.mouse.move(start.x, start.y, { steps: 8 });
-        await this.page.mouse.down();
-        // one step per tile keeps the MULTI brush painting every tile
-        await this.page.mouse.move(end.x, end.y, { steps: Math.max(width, 2) });
-        await this.page.mouse.up();
-        await this.page.waitForTimeout(60);
+      // A zero-distance drag (1×1 region) yields 0 placed because the MULTI
+      // brush requires movement to register tiles. Use a single click instead.
+      if (width === 1 && height === 1) {
+        const point = await this.tileToPage(column, row);
+        await this.page.mouse.click(point.x, point.y);
+      } else {
+        for (let r = row; r < row + height; r++) {
+          const start = await this.tileToPage(column, r);
+          const end = await this.tileToPage(column + width - 1, r);
+          await this.page.mouse.move(start.x, start.y, { steps: 8 });
+          await this.page.mouse.down();
+          // one step per tile keeps the MULTI brush painting every tile
+          await this.page.mouse.move(end.x, end.y, { steps: Math.max(width, 2) });
+          await this.page.mouse.up();
+          await this.page.waitForTimeout(60);
+        }
       }
       await this.page.waitForTimeout(this.pace);
       const after = await this.snapshotRegion(win.column, win.row, win.width, win.height);
@@ -309,7 +316,7 @@ export class PlannerSession {
       const lines = [`erased: ${summarize(removed)}`];
       if (outOfRect.length > 0) {
         lines.push(
-          `WARNING: the erase reached outside the requested region (erasing any tile of a multi-tile object removes it whole): ${summarize(outOfRect)}`,
+          `WARNING: the erase reached outside the requested region — erasing any tile of a multi-tile object removes the whole object. Buildings have roof sprites that extend ~2 rows ABOVE the footprint anchor, so a tile in those rows counts as part of the building: ${summarize(outOfRect)}`,
         );
       }
       return { ok: true, detail: lines.join("\n") };

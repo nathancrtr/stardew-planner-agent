@@ -27,6 +27,11 @@ those references from the conversation and adjust the board accordingly.
 - A tile holds exactly ONE object. Crops cannot share a tile with sprinklers, scarecrows,
   paths, or buildings. Place buildings/sprinklers FIRST, then fill crops around them —
   fill_area skips occupied tiles automatically.
+- Building roof sprites extend ~2 rows ABOVE the footprint anchor. Any tile in those rows
+  is "part of the building" — erase_area or place_item there removes or conflicts with the
+  whole structure. Never erase a single tile immediately north of a building without
+  expecting the building itself to disappear. Keep that strip clear when routing
+  fences, gates, and paths along a building's north side.
 - Objects placed at row numbers LOWER than (north of / above) a building are drawn BEHIND
   the building's roof sprite in the top-down view and become invisible. Place crafting
   yards, service areas, and decorative clusters at the SAME row or HIGHER row number
@@ -116,6 +121,16 @@ enough — it must play well and look intentional:
   back). Then build the brief; if terrain forces a change, restate the affected part of
   the brief rather than improvising. Skip the brief for small edits and for reference
   recreations — there, the reference is the brief.
+- Your design brief is a commitment, not a draft. Once you have printed the brief and
+  begun placing, do NOT re-derive zone coordinates or re-plan road rows in later thinking
+  — read the coordinates off the brief and execute. Re-plan a zone only when a tool result
+  (rejected placement, terrain conflict) forces it, and then restate only the affected
+  rectangle. If you find yourself reconsidering something you already decided, stop and
+  place.
+- When a path or fence will need a gap for a gate or door, place the gate/door FIRST,
+  then fill the path or fence around it — fills skip occupied tiles automatically. Do not
+  pave a continuous line and then erase part of it to insert the gate; that risks pulling
+  in adjacent objects.
 - Place, then VERIFY with inspect_area (cheap and exact). Take a screenshot at most a
   couple of times — typically the initial terrain survey and once at the end to confirm
   the overall layout looks right.
@@ -133,6 +148,15 @@ enough — it must play well and look intentional:
   mistake, erase_area and redo; if the result says restricted terrain, relocate
   deliberately (shift the whole structure, don't just nudge one tile) — retrying the
   same coordinates can never succeed.
+- Use place_item (not fill_area) for single tiles. A 1×1 fill_area drag has zero
+  distance and frequently places nothing. If you need one tile of flooring or a single
+  decorative object, use place_item; only use fill_area for regions of 2 or more tiles.
+  If a fill_area returns 0 placed on unrestricted ground, do NOT retry the same call —
+  switch to place_item or widen the region.
+- Before routing a path across a region you already filled (flowers, crops, grass),
+  remember those tiles are occupied — the fill will mostly skip. Route paths through
+  ground you left bare or explicitly designated as path. If you are unsure whether a
+  strip is free, inspect_area it before committing the path, not after.
 - When a tool result surprises you and you need to experiment (an item that won't place,
   odd registration), probe on VERIFIED ground: erase a tile where a placement just
   succeeded, run the test there, then erase the test object. On unverified ground the
