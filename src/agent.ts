@@ -25,13 +25,18 @@ those references from the conversation and adjust the board accordingly.
   unbuildable — inspect_area renders unbuildable tiles as "~"; prefer the open central
   farmland (roughly columns 6-72, rows 18-60) unless the user directs otherwise.
 - A tile holds exactly ONE object. Crops cannot share a tile with sprinklers, scarecrows,
-  paths, or buildings. Place buildings/sprinklers FIRST, then fill crops around them —
-  fill_area skips occupied tiles automatically.
-- Building roof sprites extend ~2 rows ABOVE the footprint anchor. Any tile in those rows
-  is "part of the building" — erase_area or place_item there removes or conflicts with the
-  whole structure. Never erase a single tile immediately north of a building without
-  expecting the building itself to disappear. Keep that strip clear when routing
-  fences, gates, and paths along a building's north side.
+  paths, or buildings. Observe this layering order within every zone:
+  (a) buildings and large structures first,
+  (b) functional items (sprinklers, beehives, furnaces, scarecrows, lamps, tubs),
+  (c) paths and fences,
+  (d) trees and large decoration,
+  (e) flowers, grass, and ground-cover fill LAST.
+  Grass and flowers placed before trees or furniture force erase-rebuild cycles.
+  fill_area skips occupied tiles — place the obstacles first and let the fill flow around them.
+- Building roof sprites extend 2–3 rows ABOVE the footprint anchor. Any tile in those rows
+  is "part of the building" — erase_area there is refused (the tool will tell you).
+  Keep that strip clear when routing fences, gates, and paths along a building's north
+  side. To intentionally remove a building, erase its anchor tile (its southernmost row).
 - Objects placed at row numbers LOWER than (north of / above) a building are drawn BEHIND
   the building's roof sprite in the top-down view and become invisible. Place crafting
   yards, service areas, and decorative clusters at the SAME row or HIGHER row number
@@ -127,10 +132,11 @@ enough — it must play well and look intentional:
   (rejected placement, terrain conflict) forces it, and then restate only the affected
   rectangle. If you find yourself reconsidering something you already decided, stop and
   place.
-- When a path or fence will need a gap for a gate or door, place the gate/door FIRST,
-  then fill the path or fence around it — fills skip occupied tiles automatically. Do not
-  pave a continuous line and then erase part of it to insert the gate; that risks pulling
-  in adjacent objects.
+- Gates must be placed ONTO an existing fence tile to convert it — placing a gate on
+  bare ground silently fails. Workflow: fill the fence line first, then place the gate
+  on top of the fence tile where you want the opening (the planner converts fence→gate).
+  Do NOT erase the fence tile and then try to place a gate on the empty tile; that always
+  fails.
 - Place, then VERIFY with inspect_area (cheap and exact). Take a screenshot at most a
   couple of times — typically the initial terrain survey and once at the end to confirm
   the overall layout looks right.
@@ -147,7 +153,10 @@ enough — it must play well and look intentional:
 - When a placement is rejected, read the error: if the tile holds something you placed by
   mistake, erase_area and redo; if the result says restricted terrain, relocate
   deliberately (shift the whole structure, don't just nudge one tile) — retrying the
-  same coordinates can never succeed.
+  same coordinates can never succeed. If the same coordinate fails twice with "modal may
+  have eaten the click", do NOT retry a third time — the tile is structurally unplaceable
+  for that item. Either change the item, shift to a verified-bare adjacent tile, or accept
+  the gap and move on.
 - Use place_item (not fill_area) for single tiles. A 1×1 fill_area drag has zero
   distance and frequently places nothing. If you need one tile of flooring or a single
   decorative object, use place_item; only use fill_area for regions of 2 or more tiles.

@@ -290,6 +290,41 @@ export class PlannerSession {
       height: height + 2 * ERASE_DIFF_MARGIN,
     };
     return this.withModalRetry(async () => {
+      // Hard guard: refuse if any tile in the rect belongs to a multi-tile object
+      // that also has tiles OUTSIDE the rect (roof overhang is the common case).
+      // Uses JS reference equality on objectData — same reference = same instance.
+      const overhangBuildings = (await this.page.evaluate(`(() => {
+        const p = window.planner;
+        const r0 = ${row}, r1 = ${row + height - 1};
+        const c0 = ${column}, c1 = ${column + width - 1};
+        const insideObjs = new Set();
+        for (let r = r0; r <= r1; r++)
+          for (let c = c0; c <= c1; c++) {
+            const t = p.tiles[r] && p.tiles[r][c];
+            if (t && t.objectData) insideObjs.add(t.objectData);
+          }
+        if (insideObjs.size === 0) return [];
+        const danger = new Set();
+        for (let r = Math.max(0, r0 - 4); r <= Math.min(64, r1 + 1); r++)
+          for (let c = Math.max(0, c0 - 1); c <= Math.min(79, c1 + 1); c++) {
+            if (r >= r0 && r <= r1 && c >= c0 && c <= c1) continue;
+            const t = p.tiles[r] && p.tiles[r][c];
+            if (t && t.objectData && insideObjs.has(t.objectData))
+              danger.add(t.objectData.id || t.objectData.name || 'building');
+          }
+        return [...danger];
+      })()`)) as string[];
+      if (overhangBuildings.length > 0) {
+        return {
+          ok: false,
+          detail:
+            `refused: the region contains roof/overhang tiles of ${overhangBuildings.map((b) => `"${b}"`).join(", ")} — ` +
+            `erasing any tile of a multi-tile object destroys the whole thing. ` +
+            `Buildings have roof sprites 2–3 rows above their anchor row. ` +
+            `To intentionally remove a building, erase its anchor tile (southernmost row).`,
+        };
+      }
+
       const before = await this.snapshotRegion(win.column, win.row, win.width, win.height);
       await this.page.evaluate(`window.planner.brushTypeEraser()`);
       for (let r = row; r < row + height; r++) {
